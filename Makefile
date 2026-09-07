@@ -26,6 +26,17 @@ else ifeq ($(ARCH),aarch64)
   OBJCOPY_DEF   = aarch64-linux-gnu-objcopy
   CRT0_NAME     = crt0-efi-aarch64.o
   RELOC_FIXUP   =
+else ifeq ($(ARCH),riscv64)
+  TARGET       ?= visor_rv64.efi
+  CC_CANDIDATES = riscv64-linux-gnu-gcc
+  ARCH_CFLAGS   = -mstrict-align
+  LDS           = $(GNU_EFI_LIB)elf_riscv64_efi.lds
+  ARCH_SRC      = arch_riscv64.c
+  GNU_EFI_INC_PREF = gnu-efi-src/inc
+  EFI_OBJCOPY   = -O pei-riscv64-little --subsystem=10
+  OBJCOPY_DEF   = objcopy
+  CRT0_NAME     = crt0-efi-riscv64.o
+  RELOC_FIXUP   =
 else
   $(error unsupported ARCH=$(ARCH); use x86_64 or aarch64)
 endif
@@ -126,7 +137,7 @@ $(OBJDIR)/%.o: $(SRC_DIR)/%.c
 -include $(OBJS:.o=.d)
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) visor_x64.efi visor_aa64.efi
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) visor_x64.efi visor_aa64.efi visor_rv64.efi
 	rm -rf $(BUILD_DIR)
 
 install: $(TARGET)

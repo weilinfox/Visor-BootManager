@@ -30,6 +30,7 @@ real_home() {
 host_efi_name() {
     case "$(uname -m 2>/dev/null)" in
         aarch64) printf 'visor_aa64.efi\n' ;;
+        riscv64) printf 'visor_rv64.efi\n' ;;
         *)       printf 'visor_x64.efi\n' ;;
     esac
 }
