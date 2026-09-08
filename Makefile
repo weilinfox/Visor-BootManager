@@ -34,7 +34,7 @@ else ifeq ($(ARCH),riscv64)
   ARCH_SRC      = arch_riscv64.c
   GNU_EFI_INC_PREF = gnu-efi-src/inc
   EFI_OBJCOPY   = -O pei-riscv64-little --subsystem=10
-  OBJCOPY_DEF   = objcopy
+  OBJCOPY_DEF   = riscv64-linux-gnu-objcopy
   CRT0_NAME     = crt0-efi-riscv64.o
   RELOC_FIXUP   =
 else
