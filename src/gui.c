@@ -186,13 +186,153 @@ static int gui_has_linear_fb(gui_state_t *state) {
             state->pixel_format == PixelRedGreenBlueReserved8BitPerColor);
 }
 
+/*
+static void debug_fb_pixel(gui_state_t *state, const CHAR16 *tag)
+{
+    const UINTN x =970;
+    const UINTN y = state->screen_height *3/ 4;  // 270
+
+    UINTN ppsl = state->gop->Mode->Info->PixelsPerScanLine;
+
+    UINT32 back =
+        state->backbuffer[y * state->screen_width + x];
+
+    volatile UINT32 *fb =
+        (volatile UINT32 *)(UINTN)
+            state->gop->Mode->FrameBufferBase;
+
+#if defined(__riscv)
+    __asm__ volatile("fence rw, rw" ::: "memory");
+#endif
+
+    UINT32 video = fb[y * ppsl + x];
+
+    CHAR16 buf[192];
+
+    SPrint(
+        buf, sizeof(buf),
+        L"%s: back=%08x fb=%08x",
+        tag,
+        (unsigned)back,
+        (unsigned)video
+    );
+
+    efi_log(buf);
+}
+*/
+static UINTN g_fb_dump_seq = 0;
+
+static void debug_dump_framebuffer(gui_state_t *state)
+{
+    if (!state || !state->gop || !state->gop->Mode)
+        return;
+
+    EFI_PHYSICAL_ADDRESS base = state->gop->Mode->FrameBufferBase;
+    if (!base)
+        return;
+
+    UINTN w = state->screen_width;
+    UINTN h = state->screen_height;
+    UINTN ppsl = state->gop->Mode->Info->PixelsPerScanLine;
+
+    
+     //Current K3 mode is ppsl == width. Keep the dump tightly packed
+     // even if that changes.
+     
+    UINTN row_bytes = w * sizeof(UINT32);
+    UINTN dump_size = row_bytes * h;
+
+    UINT8 *dump = efi_allocate_pool(dump_size);
+    if (!dump)
+        return;
+
+    UINT8 *fb = (UINT8 *)(UINTN)base;
+
+    for (UINTN y = 0; y < h; y++) {
+        CopyMem(
+            dump + y * row_bytes,
+            fb + y * ppsl * sizeof(UINT32),
+            row_bytes
+        );
+    }
+
+    EFI_FILE_PROTOCOL *root = efi_boot_volume_root();
+    if (!root) {
+        efi_free_pool(dump);
+        return;
+    }
+
+    CHAR16 path[64];
+    SPrint(
+        path,
+        sizeof(path),
+        L"\\fb-%04d.raw",
+        (int)g_fb_dump_seq++
+    );
+
+    EFI_FILE_PROTOCOL *file = NULL;
+    EFI_STATUS s = root->Open(
+        root,
+        &file,
+        path,
+        EFI_FILE_MODE_CREATE |
+        EFI_FILE_MODE_READ |
+        EFI_FILE_MODE_WRITE,
+        0
+    );
+
+    if (!EFI_ERROR(s) && file) {
+        UINTN size = dump_size;
+        s = file->Write(file, &size, dump);
+
+        file->Flush(file);
+        file->Close(file);
+
+        CHAR16 msg[128];
+        SPrint(
+            msg,
+            sizeof(msg),
+            L"fb dump: %s size=%d status=%r",
+            path,
+            (int)size,
+            s
+        );
+        efi_log(msg);
+    }
+
+    root->Close(root);
+    efi_free_pool(dump);
+}
+
+
 void gui_present(gui_state_t *state) {
     if (!state->backbuffer) return;
 
     if (state->fb_fast) {
         blit_rows(state, 0, (INTN)state->screen_height);
-        return;
+/*	debug_fb_pixel(state, L"PRESENT");
+    
+
+#if defined(__riscv)
+    EFI_STATUS fs = arch_fb_flush(
+        (UINT64)state->gop->Mode->FrameBufferBase,
+        (UINT64)state->gop->Mode->FrameBufferSize
+    );
+
+    static int flush_logged = 0;
+    if (!flush_logged) {
+        CHAR16 buf[96];
+        SPrint(buf, sizeof(buf),
+               L"gfx: framebuffer flush: %r", fs);
+        efi_log(buf);
+        flush_logged = 1;
     }
+#endif    
+*/
+
+	goto dump;
+    }
+//	debug_fb_pixel(state, L"PRESENT UUU");
 
     EFI_STATUS s = uefi_call_wrapper(state->gop->Blt, 10,
         state->gop,
@@ -201,10 +341,16 @@ void gui_present(gui_state_t *state) {
         0, 0, 0, 0,
         state->screen_width, state->screen_height,
         0);
-    if (!EFI_ERROR(s)) return;
+    if (!EFI_ERROR(s)) goto dump;
 
-    if (gui_has_linear_fb(state))
+    if (gui_has_linear_fb(state)) {
         blit_rows(state, 0, (INTN)state->screen_height);
+     goto dump;
+    }
+
+return;
+dump:
+    debug_dump_framebuffer(state);
 }
 
 void gui_present_band(gui_state_t *state, INTN y, INTN h) {
@@ -324,7 +470,35 @@ static void gui_fade_from_snapshot(gui_state_t *state, UINT32 *snapshot,
         if (!fade_in) a = 255 - a;
 
         fade_write_scaled(state, snapshot, px, a);
+
+
+    {
+        static UINTN debug_frame = 0;
+
+            UINTN x = 970;
+            UINTN y = state->screen_height *3 / 4;
+
+            UINT32 p =
+                state->backbuffer[
+                    y * state->screen_width + x
+                ];
+
+            CHAR16 buf[160];
+            SPrint(
+                buf, sizeof(buf),
+                L"fade %d: elapsed=%lu alpha=%d pixel=%08x", fade_in,
+                elapsed,
+                (int)a,
+                (unsigned)p
+            );
+
+            efi_log(buf);
+    }
+
         gui_present(state);
+
+BS->Stall(100000);
+
         if (done) break;
 
         UINT64 spent = arch_now_us() - frame_start;
@@ -1583,6 +1757,33 @@ static UINT32 dim_pixel(UINT32 c) {
 }
 
 static int gui_draw_background(gui_state_t *state) {
+
+/*
+{
+    UINTN w = state->screen_width;
+    UINTN h = state->screen_height;
+
+    static const UINT32 colors[8] = {
+        0xFFFFFFFFu, // white
+        0xFFFFFF00u, // yellow
+        0xFF00FFFFu, // cyan
+        0xFF00FF00u, // green
+        0xFFFF00FFu, // magenta
+        0xFFFF0000u, // red
+        0xFF0000FFu, // blue
+        0xFF000000u, // black
+    };
+
+    for (UINTN y = 0; y < h; y++) {
+        for (UINTN x = 0; x < w; x++) {
+            UINTN bar = x * 8 / w;
+            state->backbuffer[y * w + x] = colors[bar];
+        }
+    }
+
+    return 0;
+} */
+
     UINTN dst_width  = state->screen_width;
     UINTN dst_height = state->screen_height;
 
