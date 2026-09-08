@@ -67,16 +67,6 @@ UINT64 arch_now_us(void)
            rem * 1000000ULL / time_hz;
 }
 
-int arch_clock_since_power_on(void)
-{
-    /*
-     * The RISC-V time counter is a constant-frequency real-time
-     * counter, but the ISA does not guarantee that zero corresponds
-     * to this system boot/power-on.
-     */
-    return 0;
-}
-
 typedef struct visor_cpu_arch visor_cpu_arch_t;
 
 struct visor_cpu_arch {
